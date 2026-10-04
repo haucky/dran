@@ -41,8 +41,28 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function plural(n, one, many) { return n === 1 ? one : many; }
-function unitShort(ex) { return ex.unit === 'secs' ? 's' : 'Wdh'; }
-function stepSize(ex) { return ex.unit === 'secs' ? 5 : 1; }
+
+/* Zeitwerte: unter 1 min in Sekunden, glatte Minuten als "min", sonst m:ss */
+function fmtTime(sec) {
+  if (sec < 60) return `${sec} s`;
+  if (sec % 60 === 0) return `${sec / 60} min`;
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} min`;
+}
+function fmtClock(sec) { return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; }
+function valText(unit, v) { return unit === 'secs' ? fmtTime(v) : `${v} Wdh`; }
+function valHtml(unit, v) { const t = valText(unit, v); const i = t.lastIndexOf(' '); return `${t.slice(0, i)}<small>${t.slice(i + 1)}</small>`; }
+/* Schritte wachsen mit: bis 1 min 5 s, bis 5 min 30 s, darüber 5 min */
+function stepValue(unit, v, d, min = 1) {
+  if (unit !== 'secs') return Math.max(min, v + d);
+  if (d > 0) {
+    if (v < 60) return Math.floor(v / 5) * 5 + 5;
+    if (v < 300) return Math.floor(v / 30) * 30 + 30;
+    return Math.floor(v / 300) * 300 + 300;
+  }
+  if (v > 300) return Math.ceil(v / 300) * 300 - 300;
+  if (v > 60) return Math.ceil(v / 30) * 30 - 30;
+  return Math.max(5, Math.ceil(v / 5) * 5 - 5);
+}
 
 let toastTimer = null;
 function toast(msg, undo) {
@@ -59,7 +79,7 @@ function toast(msg, undo) {
 function seedData() {
   const t = todayStr();
   const ex = (name, unit, cadence, cooldown, defaultSets, extra = {}) =>
-    ({ id: uid(), name, unit, cadence, cooldown, defaultSets, paused: false, optional: false, note: '', createdAt: Date.now(), ...extra });
+    ({ id: uid(), name, unit, cadence, cooldown, defaultSets, paused: false, optional: false, countdown: 3, note: '', createdAt: Date.now(), ...extra });
   const w = (exercise, daysAgo, values, feels, variant = '', note = '') => ({
     id: uid(), exerciseId: exercise.id, date: addDays(t, -daysAgo), variant, note, createdAt: Date.now() - daysAgo * 86400000,
     sets: values.map((v, i) => ({ value: v, feel: feels[i] || null })),
@@ -74,10 +94,11 @@ function seedData() {
   const hand = ex('Handstand an der Wand', 'secs', 3, 1, [20, 20], { paused: true });
   const bridge = ex('Brücke', 'secs', 3, 1, [20, 20, 20], { optional: true });
   const balance = ex('Balancieren auf dem Balken', 'secs', 3, 1, [60], { optional: true });
+  const yin = ex('Yin Yoga', 'secs', 7, 0, [1800], { optional: true, countdown: 0 });
 
   return {
     version: DATA_VERSION,
-    exercises: [klimm, hocke, squat, push, row, hang, bridge, balance, hand],
+    exercises: [klimm, hocke, squat, push, row, hang, bridge, balance, yin, hand],
     workouts: [
       w(klimm, 11, [5, 5, 4], ['easy', 'hard', 'hard'], 'schulterbreit, Schaukelstange'),
       w(klimm, 8, [5, 5, 5], ['easy', 'easy', 'hard'], 'schulterbreit, Schaukelstange'),
@@ -92,6 +113,7 @@ function seedData() {
       w(hand, 20, [20, 15], ['hard', 'hard']),
       w(bridge, 3, [20, 20, 20], ['easy', 'easy', 'hard']),
       w(balance, 0, [60], ['easy']),
+      w(yin, 2, [1800], ['easy']),
     ],
     lastExport: null,
   };
@@ -110,6 +132,7 @@ function normalize(d) {
     defaultSets: Array.isArray(x.defaultSets) && x.defaultSets.length ? x.defaultSets.map((v) => num(v, 1, 5)) : [5, 5, 5],
     paused: !!x.paused,
     optional: !!x.optional,
+    countdown: [0, 3, 5, 10].includes(Number(x.countdown)) ? Number(x.countdown) : 3,
     note: String(x.note || ''),
     createdAt: Number(x.createdAt) || Date.now(),
   }));
@@ -166,7 +189,7 @@ function status(ex, t = todayStr()) {
 function rhythmText(ex) {
   const parts = [ex.optional ? 'optional' : ex.cadence === 1 ? 'täglich' : `alle ${ex.cadence} T`];
   if (ex.cooldown > 0) parts.push(`Pause ${ex.cooldown} T`);
-  if (ex.unit === 'secs') parts.push('Sek');
+  if (ex.unit === 'secs') parts.push('Zeit');
   return parts.join(' · ');
 }
 function agoText(st) {
@@ -216,6 +239,149 @@ function seg(action, current, options) {
     `<button type="button" data-action="${action}" data-v="${val}" aria-pressed="${current === val}">${label}</button>`).join('')}</div>`;
 }
 function feelText(f) { return f === 'easy' ? 'leicht' : f === 'hard' ? 'schwer' : '–'; }
+
+const playIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+const bellIcon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>';
+const bellButton = `<button type="button" class="bell" data-action="bell-test" aria-label="Probe-Klingeln">${bellIcon}</button>`;
+
+/* ================= Klang ================= */
+
+let audioCtx = null;
+function getAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!audioCtx) {
+    // iOS: Ton soll kurz über andere Audio-Apps gelegt werden
+    try { if (navigator.audioSession) navigator.audioSession.type = 'transient'; } catch (e) { /* egal */ }
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+// Muss in einem Tap passieren, sonst bleibt der Ton später stumm (iOS)
+function unlockAudio() {
+  const ctx = getAudio();
+  if (!ctx) return;
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination); src.start(0);
+}
+// Klangschalen-artiger Ton aus mehreren abklingenden Sinus-Teiltönen
+function strike(ctx, out, t0, base, dur, vol) {
+  [[1, 1], [2.76, 0.45], [5.4, 0.22], [8.93, 0.1]].forEach(([ratio, amp], k) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = base * ratio;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol * amp, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * (1 - k * 0.18));
+    osc.connect(g); g.connect(out);
+    osc.start(t0); osc.stop(t0 + dur + 0.1);
+  });
+}
+function bell(kind) {
+  const ctx = getAudio();
+  if (!ctx) return;
+  const comp = ctx.createDynamicsCompressor();
+  const master = ctx.createGain();
+  master.gain.value = 1;
+  master.connect(comp); comp.connect(ctx.destination);
+  const t = ctx.currentTime + 0.03;
+  if (kind === 'start') {
+    strike(ctx, master, t, 880, 1.4, 0.9);
+    if (navigator.vibrate) navigator.vibrate(200);
+  } else {
+    strike(ctx, master, t, 660, 2.6, 0.9);
+    strike(ctx, master, t + 0.7, 660, 2.6, 0.9);
+    strike(ctx, master, t + 1.4, 660, 3.2, 0.9);
+    if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]);
+  }
+}
+
+/* ================= Timer ================= */
+
+let timer = null;
+let wakeLock = null;
+
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch (e) { /* nicht unterstützt: dann eben ohne */ }
+}
+
+function stopTimer() {
+  if (!timer) return;
+  clearInterval(timer.iv);
+  timer = null;
+  keepAwake(false);
+}
+
+// Alles aus Zeitstempeln berechnet, damit es auch nach Sperrbildschirm stimmt
+function timerState() {
+  const now = timer.pausedAt || Date.now();
+  const elapsedMs = now - timer.createdAt - timer.pausedTotal - timer.countdown * 1000;
+  const targetMs = timer.target * 1000;
+  if (elapsedMs < 0) {
+    return { phase: 'pre', elapsedMs, big: String(Math.ceil(-elapsedMs / 1000)), sub: 'Gleich geht’s los', pct: 0 };
+  }
+  if (elapsedMs < targetMs) {
+    return { phase: 'run', elapsedMs, big: fmtClock(Math.ceil((targetMs - elapsedMs) / 1000)), sub: `Ziel ${fmtTime(timer.target)}`, pct: (elapsedMs / targetMs) * 100 };
+  }
+  return { phase: 'over', elapsedMs, big: '+' + fmtClock(Math.floor((elapsedMs - targetMs) / 1000)), sub: `Ziel ${fmtTime(timer.target)} geschafft · läuft weiter`, pct: 100 };
+}
+
+function tick() {
+  if (!timer) return;
+  const st = timerState();
+  if (!timer.pausedAt) {
+    if (timer.countdown > 0 && !timer.rangStart && st.elapsedMs >= 0) {
+      timer.rangStart = true;
+      if (st.elapsedMs < 2000) bell('start');
+    }
+    if (!timer.rangEnd && st.elapsedMs >= timer.target * 1000) {
+      timer.rangEnd = true;
+      // Nur klingeln, wenn wir pünktlich sind (nicht erst nach dem Entsperren)
+      if (st.elapsedMs - timer.target * 1000 < 3000) bell('end');
+    }
+  }
+  const root = document.querySelector('[data-timer]');
+  if (!root) return;
+  root.className = `timer timer--${st.phase}${timer.pausedAt ? ' timer--paused' : ''}`;
+  root.querySelector('[data-tbig]').textContent = st.big;
+  root.querySelector('[data-tsub]').textContent = timer.pausedAt ? 'Pausiert' : st.sub;
+  root.querySelector('[data-tbar]').style.width = st.pct + '%';
+}
+
+function viewTimer(ex) {
+  const st = timerState();
+  const n = session.sets.length;
+  return `
+    <div class="timer timer--${st.phase}${timer.pausedAt ? ' timer--paused' : ''}" data-timer>
+      <div class="timer__inner">
+        <div class="timer__top">
+          <button type="button" class="linkbtn" data-action="timer-cancel">${chevron}Abbrechen</button>
+          ${bellButton}
+        </div>
+        <div class="timer__mid">
+          <p class="timer__label">${esc(ex.name)} · Satz ${timer.i + 1} von ${n}</p>
+          <p class="timer__big" data-tbig>${st.big}</p>
+          <p class="timer__sub" data-tsub>${timer.pausedAt ? 'Pausiert' : st.sub}</p>
+          <div class="timer__bar"><span data-tbar style="width:${st.pct}%"></span></div>
+        </div>
+        <div class="timer__actions">
+          <button type="button" class="btn btn--primary" data-action="timer-stop">Stopp &amp; übernehmen</button>
+          <button type="button" class="btn" data-action="timer-pause">${timer.pausedAt ? 'Weiter' : 'Pause'}</button>
+        </div>
+      </div>
+    </div>`;
+}
 
 /* ================= Screens ================= */
 
@@ -284,13 +450,11 @@ function viewExercise(id) {
   const last = lastWorkout(ex.id);
   const draft = getDraft(ex);
   const history = workoutsFor(ex.id).slice(0, 12);
-  const u = unitShort(ex);
-
   const lastCard = last ? `
     <section class="card">
       <div class="card__head"><h2>Letztes Mal</h2><span class="small">${fmtShort(last.date)}</span></div>
       <div class="sets-table">
-        ${last.sets.map((s, i) => `<div class="sets-table__row"><span>Satz ${i + 1}</span><span>${s.value} ${u}</span><span class="feel feel--${s.feel || 'none'}">${feelText(s.feel)}</span></div>`).join('')}
+        ${last.sets.map((s, i) => `<div class="sets-table__row"><span>Satz ${i + 1}</span><span>${valText(ex.unit, s.value)}</span><span class="feel feel--${s.feel || 'none'}">${feelText(s.feel)}</span></div>`).join('')}
       </div>
       ${last.variant ? `<p class="small">Variante: ${esc(last.variant)}</p>` : ''}
       ${last.note ? `<p class="small">Notiz: ${esc(last.note)}</p>` : ''}
@@ -308,7 +472,7 @@ function viewExercise(id) {
 
     <section class="stack">
       <h2>Heute</h2>
-      ${draft.sets.map((v, i) => `<div class="line"><span class="line__label">Satz ${i + 1}</span>${stepper('draft', `${v}<small>${u}</small>`, `Satz ${i + 1}`, `data-i="${i}"`)}</div>`).join('')}
+      ${draft.sets.map((v, i) => `<div class="line"><span class="line__label">Satz ${i + 1}</span>${stepper('draft', valHtml(ex.unit, v), `Satz ${i + 1}`, `data-i="${i}"`)}</div>`).join('')}
       <div class="two">
         <button type="button" class="btn btn--dashed" data-action="add-set">+ Satz</button>
         <button type="button" class="btn btn--dashed" data-action="remove-set" ${draft.sets.length <= 1 ? 'disabled' : ''}>− Satz</button>
@@ -329,7 +493,7 @@ function viewExercise(id) {
       <ul class="hist">
         ${history.map((w) => `<li>
           <span class="hist__date">${fmtShort(w.date)}</span>
-          <span class="hist__vals">${w.sets.map((s) => `<span class="v--${s.feel || 'none'}" title="${feelText(s.feel)}">${s.value}</span>`).join('')}${w.variant ? `<span class="small">${esc(w.variant)}</span>` : ''}</span>
+          <span class="hist__vals">${w.sets.map((s) => `<span class="v--${s.feel || 'none'}" title="${feelText(s.feel)}">${ex.unit === 'secs' ? fmtTime(s.value) : s.value}</span>`).join('')}${w.variant ? `<span class="small">${esc(w.variant)}</span>` : ''}</span>
           <button type="button" class="x" data-action="del-workout" data-wid="${w.id}" aria-label="Eintrag vom ${fmtShort(w.date)} löschen">×</button>
         </li>`).join('')}
       </ul>
@@ -344,7 +508,8 @@ function viewExercise(id) {
       <div class="line"><span class="line__label">Optional</span>${seg('ex-optional', ex.optional ? 'yes' : 'no', [['no', 'Nein'], ['yes', 'Ja']])}</div>
       ${ex.optional ? '<p class="small" style="margin-top:-6px">Wird nie fällig. Nach der Pause steht sie hellblau unten bei „Möglich“.</p>' : `<div class="line"><span class="line__label">Mindestens alle</span>${stepper('cadence', `${ex.cadence}<small>${plural(ex.cadence, 'Tag', 'Tage')}</small>`, 'Rhythmus')}</div>`}
       <div class="line"><span class="line__label">Pause mindestens</span>${stepper('cooldown', `${ex.cooldown}<small>${plural(ex.cooldown, 'Tag', 'Tage')}</small>`, 'Pause')}</div>
-      <div class="line"><span class="line__label">Zählen in</span>${seg('ex-unit', ex.unit, [['reps', 'Wdh'], ['secs', 'Sek']])}</div>
+      <div class="line"><span class="line__label">Zählen in</span>${seg('ex-unit', ex.unit, [['reps', 'Wdh'], ['secs', 'Zeit']])}</div>
+      ${ex.unit === 'secs' ? `<div class="line"><span class="line__label">Timer-Vorlauf</span>${seg('ex-countdown', String(ex.countdown), [['0', 'Aus'], ['3', '3 s'], ['5', '5 s'], ['10', '10 s']])}</div>` : ''}
       <label class="field">Notiz zur Übung
         <textarea data-input="ex-note" placeholder="Technik, Körpergefühl, Ideen …">${esc(ex.note)}</textarea>
       </label>
@@ -359,17 +524,19 @@ function viewWorkout(id) {
   const ex = getEx(id);
   if (!ex) return null;
   if (!session || session.exerciseId !== id) return null;
-  const u = unitShort(ex);
+  if (timer && timer.exerciseId === id) return viewTimer(ex);
+  const timed = ex.unit === 'secs';
   return `
     <a class="back" href="#/ex/${ex.id}">${chevron}Abbrechen</a>
     <header>
-      <h1>${esc(ex.name)}</h1>
+      <div class="titlebar"><h1>${esc(ex.name)}</h1>${timed ? bellButton : ''}</div>
       ${session.variant ? `<p class="meta">${esc(session.variant)}</p>` : ''}
     </header>
     <div class="stack">
       ${session.sets.map((s, i) => `
         <div class="wcard">
-          <div class="line"><span class="line__label">Satz ${i + 1}</span>${stepper('session', `${s.value}<small>${u}</small>`, `Satz ${i + 1}`, `data-i="${i}"`)}</div>
+          <div class="line"><span class="line__label">Satz ${i + 1}</span>${stepper('session', valHtml(ex.unit, s.value), `Satz ${i + 1}`, `data-i="${i}"`)}</div>
+          ${timed ? `<button type="button" class="btn btn--timer" data-action="timer-start" data-i="${i}">${playIcon}Timer ${fmtClock(s.value)}</button>` : ''}
           <div class="two">
             <button type="button" class="feelbtn feelbtn--easy" data-action="feel" data-i="${i}" data-v="easy" aria-pressed="${s.feel === 'easy'}">leicht</button>
             <button type="button" class="feelbtn feelbtn--hard" data-action="feel" data-i="${i}" data-v="hard" aria-pressed="${s.feel === 'hard'}">schwer</button>
@@ -387,7 +554,6 @@ function viewWorkout(id) {
 
 function viewNew() {
   if (!form) form = { name: '', unit: 'reps', count: 3, value: 8, cadence: 3, cooldown: 1, optional: false };
-  const u = form.unit === 'secs' ? 's' : 'Wdh';
   return `
     <a class="back" href="#/">${chevron}Heute</a>
     <h1>Neue Übung</h1>
@@ -395,9 +561,9 @@ function viewNew() {
       <label class="field">Name
         <input type="text" data-input="form-name" value="${esc(form.name)}" placeholder="z. B. Klimmzüge" autocomplete="off">
       </label>
-      <div class="line"><span class="line__label">Zählen in</span>${seg('form-unit', form.unit, [['reps', 'Wdh'], ['secs', 'Sek']])}</div>
+      <div class="line"><span class="line__label">Zählen in</span>${seg('form-unit', form.unit, [['reps', 'Wdh'], ['secs', 'Zeit']])}</div>
       <div class="line"><span class="line__label">Sätze</span>${stepper('form-count', form.count, 'Sätze')}</div>
-      <div class="line"><span class="line__label">Pro Satz</span>${stepper('form-value', `${form.value}<small>${u}</small>`, 'Wert pro Satz')}</div>
+      <div class="line"><span class="line__label">Pro Satz</span>${stepper('form-value', valHtml(form.unit, form.value), 'Wert pro Satz')}</div>
       <div class="line"><span class="line__label">Optional</span>${seg('form-optional', form.optional ? 'yes' : 'no', [['no', 'Nein'], ['yes', 'Ja']])}</div>
       ${form.optional ? '' : `<div class="line"><span class="line__label">Mindestens alle</span>${stepper('form-cadence', `${form.cadence}<small>${plural(form.cadence, 'Tag', 'Tage')}</small>`, 'Rhythmus')}</div>`}
       <div class="line"><span class="line__label">Pause mindestens</span>${stepper('form-cooldown', `${form.cooldown}<small>${plural(form.cooldown, 'Tag', 'Tage')}</small>`, 'Pause')}</div>
@@ -462,12 +628,12 @@ const actions = {
     const i = Number(ds.i);
     const ex = currentEx();
     switch (ds.target) {
-      case 'draft': { const dr = getDraft(ex); dr.sets[i] = Math.max(1, dr.sets[i] + d * stepSize(ex)); break; }
-      case 'session': { const s = session.sets[i]; s.value = Math.max(0, s.value + d * stepSize(ex)); break; }
+      case 'draft': { const dr = getDraft(ex); dr.sets[i] = stepValue(ex.unit, dr.sets[i], d, 1); break; }
+      case 'session': { const s = session.sets[i]; s.value = stepValue(ex.unit, s.value, d, 0); break; }
       case 'cadence': ex.cadence = Math.max(1, ex.cadence + d); save(); break;
       case 'cooldown': ex.cooldown = Math.max(0, ex.cooldown + d); save(); break;
       case 'form-count': form.count = Math.max(1, Math.min(10, form.count + d)); break;
-      case 'form-value': form.value = Math.max(1, form.value + d * (form.unit === 'secs' ? 5 : 1)); break;
+      case 'form-value': form.value = stepValue(form.unit, form.value, d, 1); break;
       case 'form-cadence': form.cadence = Math.max(1, form.cadence + d); break;
       case 'form-cooldown': form.cooldown = Math.max(0, form.cooldown + d); break;
     }
@@ -495,6 +661,7 @@ const actions = {
     ex.defaultSets = session.sets.map((s) => Math.max(1, s.value));
     save();
     delete drafts[ex.id];
+    stopTimer();
     session = null;
     toast(`${ex.name} eingetragen`);
     location.hash = '#/';
@@ -528,6 +695,43 @@ const actions = {
   },
   'ex-optional'(ds) { const ex = currentEx(); ex.optional = ds.v === 'yes'; save(); render(); },
   'form-optional'(ds) { form.optional = ds.v === 'yes'; render(); },
+  'ex-countdown'(ds) { const ex = currentEx(); ex.countdown = Number(ds.v); save(); render(); },
+  'bell-test'() {
+    bell('end');
+    toast('Nichts gehört? Lautstärke hoch, Stummschalter prüfen.');
+  },
+  'timer-start'(ds) {
+    const ex = currentEx();
+    const i = Number(ds.i);
+    unlockAudio();
+    timer = {
+      exerciseId: ex.id, i, target: Math.max(1, session.sets[i].value), countdown: ex.countdown || 0,
+      createdAt: Date.now(), pausedAt: null, pausedTotal: 0, rangStart: false, rangEnd: false, iv: null,
+    };
+    timer.iv = setInterval(tick, 200);
+    keepAwake(true);
+    render();
+    window.scrollTo(0, 0);
+  },
+  'timer-pause'() {
+    if (!timer) return;
+    const now = Date.now();
+    if (timer.pausedAt) { timer.pausedTotal += now - timer.pausedAt; timer.pausedAt = null; keepAwake(true); }
+    else timer.pausedAt = now;
+    render();
+  },
+  'timer-stop'() {
+    if (!timer) return;
+    const { i, elapsedMs } = { i: timer.i, elapsedMs: timerState().elapsedMs };
+    stopTimer();
+    if (elapsedMs > 0 && session) {
+      const sec = Math.max(1, Math.round(elapsedMs / 1000));
+      session.sets[i].value = sec;
+      toast(`Satz ${i + 1}: ${fmtTime(sec)}`);
+    }
+    render();
+  },
+  'timer-cancel'() { stopTimer(); render(); },
   'ex-unit'(ds) { const ex = currentEx(); ex.unit = ds.v; save(); render(); },
   'toggle-pause'() { const ex = currentEx(); ex.paused = !ex.paused; save(); render(); },
   'delete-ex'() {
@@ -551,7 +755,7 @@ const actions = {
     if (!name) { toast('Bitte einen Namen eingeben'); const el = document.querySelector('[data-input="form-name"]'); if (el) el.focus(); return; }
     const ex = {
       id: uid(), name, unit: form.unit, cadence: form.cadence, cooldown: form.cooldown,
-      defaultSets: Array(form.count).fill(form.value), paused: false, optional: form.optional, note: '', createdAt: Date.now(),
+      defaultSets: Array(form.count).fill(form.value), paused: false, optional: form.optional, countdown: 3, note: '', createdAt: Date.now(),
     };
     db.exercises.push(ex);
     save();
@@ -646,6 +850,7 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 // Beim Zurückkehren in die App (z. B. am nächsten Tag) neu berechnen
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
+  if (timer && !timer.pausedAt) keepAwake(true);
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
   render();

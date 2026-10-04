@@ -63,6 +63,15 @@ Dann `http://localhost:8000` öffnen. Ein Doppelklick auf `index.html` reicht ni
 - **Schnell:** Tippe auf den Haken ✓ in der Liste. Die Übung wird mit den geplanten Werten eingetragen, ohne Bewertung. Danach kannst du 5 Sekunden lang auf „Rückgängig“ tippen.
 - **Ausführlich:** Tippe auf die Übung → „Workout starten“ → bewerte jeden Satz mit leicht oder schwer.
 
+## Zeit-Übungen und Timer
+
+- Stellst du bei einer Übung „Zählen in: Zeit“ ein, wachsen die Schritte mit: bis 1 min in 5 s, bis 5 min in 30 s, darüber in 5 min (für Yin Yoga & Co.).
+- Im Workout hat jeder Satz einen Timer-Knopf. Du musst ihn nicht nutzen, leicht/schwer geht auch ohne.
+- **Vorlauf** (pro Übung: Aus, 3, 5 oder 10 s): Erst zählt der Timer runter, dann klingelt es zum Start.
+- Am Ende klingelt es dreimal. Danach läuft die Zeit weiter (+0:12). „Stopp & übernehmen“ trägt die tatsächliche Zeit in den Satz ein.
+- **Glocke** antippen = Probe-Klingeln.
+- Grenzen einer Web-App: Klingeln geht nur, solange die App offen ist und das Display an. Die App versucht, das Display wachzuhalten. Vibration gibt es nur auf Android.
+
 ## Updates
 
 Wenn du eine neue Version pushst, erhöhst du in `sw.js` die `VERSION` (z. B. `dran-v2` → `dran-v3`). Die installierte App lädt die neue Version beim nächsten Öffnen im Hintergrund und zeigt sie spätestens beim Öffnen danach an. Die Daten bleiben dabei erhalten. Neue Datenfelder bekommen beim Laden automatisch einen Standardwert.

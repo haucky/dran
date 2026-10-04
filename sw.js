@@ -4,7 +4,7 @@
   lädt im Hintergrund die neueste Version und zeigt sie beim nächsten Start.
   Bei größeren Änderungen VERSION erhöhen, dann wird der alte Cache gelöscht.
 */
-const VERSION = 'dran-v2';
+const VERSION = 'dran-v3';
 const ASSETS = [
   './',
   './index.html',
