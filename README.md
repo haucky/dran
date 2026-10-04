@@ -55,4 +55,14 @@ Dann `http://localhost:8000` öffnen. Ein Doppelklick auf `index.html` reicht ni
 - **Fällig (grün):** Seit dem letzten Mal sind mindestens „Mindestens alle“-Tage vergangen, oder die Übung wurde noch nie gemacht.
 - **Möglich (orange):** Die Pause ist vorbei, aber die Übung ist noch nicht fällig.
 - **Pause (grau):** Seit dem letzten Mal sind weniger Tage vergangen als bei „Pause mindestens“ eingestellt.
+- **Optional (hellblau):** Die Übung wird nie fällig. Nach ihrer Pause steht sie ganz unten bei „Möglich“.
 - „↑ zuletzt alles leicht“ erscheint, wenn beim letzten Workout jeder Satz als leicht bewertet wurde.
+
+## Eintragen
+
+- **Schnell:** Tippe auf den Haken ✓ in der Liste. Die Übung wird mit den geplanten Werten eingetragen, ohne Bewertung. Danach kannst du 5 Sekunden lang auf „Rückgängig“ tippen.
+- **Ausführlich:** Tippe auf die Übung → „Workout starten“ → bewerte jeden Satz mit leicht oder schwer.
+
+## Updates
+
+Wenn du eine neue Version pushst, erhöhst du in `sw.js` die `VERSION` (z. B. `dran-v2` → `dran-v3`). Die installierte App lädt die neue Version beim nächsten Öffnen im Hintergrund und zeigt sie spätestens beim Öffnen danach an. Die Daten bleiben dabei erhalten. Neue Datenfelder bekommen beim Laden automatisch einen Standardwert.

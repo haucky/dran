@@ -4,7 +4,7 @@
   lädt im Hintergrund die neueste Version und zeigt sie beim nächsten Start.
   Bei größeren Änderungen VERSION erhöhen, dann wird der alte Cache gelöscht.
 */
-const VERSION = 'dran-v1';
+const VERSION = 'dran-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -18,7 +18,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {

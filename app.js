@@ -45,12 +45,13 @@ function unitShort(ex) { return ex.unit === 'secs' ? 's' : 'Wdh'; }
 function stepSize(ex) { return ex.unit === 'secs' ? 5 : 1; }
 
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, undo) {
   let el = document.querySelector('.toast');
   if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
-  el.textContent = msg;
+  el.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button type="button" class="toast__undo">Rückgängig</button>' : ''}`;
+  if (undo) el.querySelector('.toast__undo').addEventListener('click', () => { el.remove(); undo(); });
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), 2400);
+  toastTimer = setTimeout(() => el.remove(), undo ? 5000 : 2400);
 }
 
 /* ================= Daten ================= */
@@ -58,7 +59,7 @@ function toast(msg) {
 function seedData() {
   const t = todayStr();
   const ex = (name, unit, cadence, cooldown, defaultSets, extra = {}) =>
-    ({ id: uid(), name, unit, cadence, cooldown, defaultSets, paused: false, note: '', createdAt: Date.now(), ...extra });
+    ({ id: uid(), name, unit, cadence, cooldown, defaultSets, paused: false, optional: false, note: '', createdAt: Date.now(), ...extra });
   const w = (exercise, daysAgo, values, feels, variant = '', note = '') => ({
     id: uid(), exerciseId: exercise.id, date: addDays(t, -daysAgo), variant, note, createdAt: Date.now() - daysAgo * 86400000,
     sets: values.map((v, i) => ({ value: v, feel: feels[i] || null })),
@@ -71,10 +72,12 @@ function seedData() {
   const row = ex('Rudern an der Stange', 'reps', 4, 2, [10, 10, 10]);
   const hang = ex('Dead Hang', 'secs', 2, 1, [30, 30]);
   const hand = ex('Handstand an der Wand', 'secs', 3, 1, [20, 20], { paused: true });
+  const bridge = ex('Brücke', 'secs', 3, 1, [20, 20, 20], { optional: true });
+  const balance = ex('Balancieren auf dem Balken', 'secs', 3, 1, [60], { optional: true });
 
   return {
     version: DATA_VERSION,
-    exercises: [klimm, hocke, squat, push, row, hang, hand],
+    exercises: [klimm, hocke, squat, push, row, hang, bridge, balance, hand],
     workouts: [
       w(klimm, 11, [5, 5, 4], ['easy', 'hard', 'hard'], 'schulterbreit, Schaukelstange'),
       w(klimm, 8, [5, 5, 5], ['easy', 'easy', 'hard'], 'schulterbreit, Schaukelstange'),
@@ -87,6 +90,8 @@ function seedData() {
       w(row, 1, [10, 10, 10], ['easy', 'easy', 'hard'], 'Füße am Boden'),
       w(hang, 0, [30, 30], ['easy', 'hard']),
       w(hand, 20, [20, 15], ['hard', 'hard']),
+      w(bridge, 3, [20, 20, 20], ['easy', 'easy', 'hard']),
+      w(balance, 0, [60], ['easy']),
     ],
     lastExport: null,
   };
@@ -104,6 +109,7 @@ function normalize(d) {
     cooldown: num(x.cooldown, 0, 1),
     defaultSets: Array.isArray(x.defaultSets) && x.defaultSets.length ? x.defaultSets.map((v) => num(v, 1, 5)) : [5, 5, 5],
     paused: !!x.paused,
+    optional: !!x.optional,
     note: String(x.note || ''),
     createdAt: Number(x.createdAt) || Date.now(),
   }));
@@ -148,15 +154,17 @@ function allEasy(w) { return !!w && w.sets.length > 0 && w.sets.every((s) => s.f
 /* Status: rest (Cool-Down läuft) · ok (möglich) · due (fällig) */
 function status(ex, t = todayStr()) {
   const last = lastWorkout(ex.id);
-  if (!last) return { kind: 'due', days: null, over: 1e9 };
+  if (!last) return ex.optional ? { kind: 'ok', optional: true, days: null, over: -1e9 } : { kind: 'due', days: null, over: 1e9 };
   const days = Math.max(0, daysBetween(last.date, t));
   if (days < ex.cooldown) return { kind: 'rest', days, remaining: ex.cooldown - days, over: days - ex.cadence };
+  // Optionale Übungen werden nie fällig, nur möglich (und stehen dort ganz unten)
+  if (ex.optional) return { kind: 'ok', optional: true, days, over: -1e9 };
   if (days >= ex.cadence) return { kind: 'due', days, over: days - ex.cadence };
   return { kind: 'ok', days, over: days - ex.cadence };
 }
 
 function rhythmText(ex) {
-  const parts = [ex.cadence === 1 ? 'täglich' : `alle ${ex.cadence} T`];
+  const parts = [ex.optional ? 'optional' : ex.cadence === 1 ? 'täglich' : `alle ${ex.cadence} T`];
   if (ex.cooldown > 0) parts.push(`Pause ${ex.cooldown} T`);
   if (ex.unit === 'secs') parts.push('Sek');
   return parts.join(' · ');
@@ -169,7 +177,7 @@ function agoText(st) {
 }
 function statusLabel(st) {
   if (st.kind === 'due') return 'fällig';
-  if (st.kind === 'ok') return 'möglich';
+  if (st.kind === 'ok') return st.optional ? 'optional' : 'möglich';
   return `Pause noch ${st.remaining} ${plural(st.remaining, 'Tag', 'Tage')}`;
 }
 
@@ -194,6 +202,8 @@ function getDraft(ex) {
 
 const chevron = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
 
+const check = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
 function stepper(target, value, label, extra = '') {
   return `<div class="stepper">
     <button type="button" data-action="step" data-target="${target}" data-d="-1" ${extra} aria-label="${esc(label)} verringern">−</button>
@@ -213,7 +223,8 @@ function viewList() {
   const t = todayStr();
   const active = db.exercises.filter((x) => !x.paused).map((ex) => ({ ex, st: status(ex, t) }));
   const due = active.filter((a) => a.st.kind === 'due').sort((a, b) => b.st.over - a.st.over);
-  const ok = active.filter((a) => a.st.kind === 'ok').sort((a, b) => b.st.over - a.st.over);
+  const ok = active.filter((a) => a.st.kind === 'ok')
+    .sort((a, b) => (b.st.over - a.st.over) || ((b.st.days ?? 1e9) - (a.st.days ?? 1e9)));
   const rest = active.filter((a) => a.st.kind === 'rest').sort((a, b) => a.st.remaining - b.st.remaining);
   const paused = db.exercises.filter((x) => x.paused);
 
@@ -222,14 +233,18 @@ function viewList() {
     const sub = st.kind === 'rest' ? `noch ${st.remaining} ${plural(st.remaining, 'Tag', 'Tage')} Pause` : rhythmText(ex);
     const big = st.days === null ? 'neu' : st.days === 0 ? 'heute' : `${st.days} T`;
     const her = st.days === null || st.days === 0 ? '' : 'her';
-    return `<a class="row row--${st.kind}" href="#/ex/${ex.id}">
-      <div class="row__main">
-        <span class="row__name">${esc(ex.name)}</span>
-        <span class="row__sub">${sub}</span>
-        ${hint ? '<span class="row__hint">↑ zuletzt alles leicht</span>' : ''}
-      </div>
-      <div class="row__ago"><span class="row__days">${big}</span>${her ? `<span class="row__her">${her}</span>` : ''}</div>
-    </a>`;
+    const cls = st.optional ? 'opt' : st.kind;
+    return `<div class="row row--${cls}">
+      <a class="row__link" href="#/ex/${ex.id}">
+        <div class="row__main">
+          <span class="row__name">${esc(ex.name)}</span>
+          <span class="row__sub">${sub}</span>
+          ${hint ? '<span class="row__hint">↑ zuletzt alles leicht</span>' : ''}
+        </div>
+        <div class="row__ago"><span class="row__days">${big}</span>${her ? `<span class="row__her">${her}</span>` : ''}</div>
+      </a>
+      ${st.kind !== 'rest' ? `<button type="button" class="row__done" data-action="quick" data-id="${ex.id}" aria-label="${esc(ex.name)} wie geplant eintragen">${check}</button>` : ''}
+    </div>`;
   };
   const section = (kind, label, items) => items.length
     ? `<section class="sec sec--${kind}"><h2 class="sec__label">${label}</h2>${items.map(row).join('')}</section>` : '';
@@ -303,7 +318,10 @@ function viewExercise(id) {
       </label>
     </section>
 
-    <button type="button" class="btn btn--primary" data-action="start">Workout starten</button>
+    <div class="stack" style="gap:8px">
+      <button type="button" class="btn btn--primary" data-action="start">Workout starten</button>
+      <button type="button" class="btn" data-action="quick">Direkt eintragen, ohne Bewertung</button>
+    </div>
 
     ${history.length ? `
     <section class="stack" style="gap:8px">
@@ -323,7 +341,8 @@ function viewExercise(id) {
       <label class="field">Name
         <input type="text" data-input="ex-name" value="${esc(ex.name)}" autocomplete="off">
       </label>
-      <div class="line"><span class="line__label">Mindestens alle</span>${stepper('cadence', `${ex.cadence}<small>${plural(ex.cadence, 'Tag', 'Tage')}</small>`, 'Rhythmus')}</div>
+      <div class="line"><span class="line__label">Optional</span>${seg('ex-optional', ex.optional ? 'yes' : 'no', [['no', 'Nein'], ['yes', 'Ja']])}</div>
+      ${ex.optional ? '<p class="small" style="margin-top:-6px">Wird nie fällig. Nach der Pause steht sie hellblau unten bei „Möglich“.</p>' : `<div class="line"><span class="line__label">Mindestens alle</span>${stepper('cadence', `${ex.cadence}<small>${plural(ex.cadence, 'Tag', 'Tage')}</small>`, 'Rhythmus')}</div>`}
       <div class="line"><span class="line__label">Pause mindestens</span>${stepper('cooldown', `${ex.cooldown}<small>${plural(ex.cooldown, 'Tag', 'Tage')}</small>`, 'Pause')}</div>
       <div class="line"><span class="line__label">Zählen in</span>${seg('ex-unit', ex.unit, [['reps', 'Wdh'], ['secs', 'Sek']])}</div>
       <label class="field">Notiz zur Übung
@@ -367,7 +386,7 @@ function viewWorkout(id) {
 }
 
 function viewNew() {
-  if (!form) form = { name: '', unit: 'reps', count: 3, value: 8, cadence: 3, cooldown: 1 };
+  if (!form) form = { name: '', unit: 'reps', count: 3, value: 8, cadence: 3, cooldown: 1, optional: false };
   const u = form.unit === 'secs' ? 's' : 'Wdh';
   return `
     <a class="back" href="#/">${chevron}Heute</a>
@@ -379,9 +398,10 @@ function viewNew() {
       <div class="line"><span class="line__label">Zählen in</span>${seg('form-unit', form.unit, [['reps', 'Wdh'], ['secs', 'Sek']])}</div>
       <div class="line"><span class="line__label">Sätze</span>${stepper('form-count', form.count, 'Sätze')}</div>
       <div class="line"><span class="line__label">Pro Satz</span>${stepper('form-value', `${form.value}<small>${u}</small>`, 'Wert pro Satz')}</div>
-      <div class="line"><span class="line__label">Mindestens alle</span>${stepper('form-cadence', `${form.cadence}<small>${plural(form.cadence, 'Tag', 'Tage')}</small>`, 'Rhythmus')}</div>
+      <div class="line"><span class="line__label">Optional</span>${seg('form-optional', form.optional ? 'yes' : 'no', [['no', 'Nein'], ['yes', 'Ja']])}</div>
+      ${form.optional ? '' : `<div class="line"><span class="line__label">Mindestens alle</span>${stepper('form-cadence', `${form.cadence}<small>${plural(form.cadence, 'Tag', 'Tage')}</small>`, 'Rhythmus')}</div>`}
       <div class="line"><span class="line__label">Pause mindestens</span>${stepper('form-cooldown', `${form.cooldown}<small>${plural(form.cooldown, 'Tag', 'Tage')}</small>`, 'Pause')}</div>
-      <p class="small">„Mindestens alle“: ab dann ist die Übung grün (fällig). „Pause“: so lange ist sie gesperrt. Dazwischen ist sie orange (möglich).</p>
+      <p class="small">„Mindestens alle“: ab dann ist die Übung grün (fällig). „Pause“: so lange ist sie gesperrt. Dazwischen ist sie orange (möglich). Optionale Übungen werden nie fällig, sie stehen nach der Pause hellblau unten bei „Möglich“.</p>
     </section>
     <button type="button" class="btn btn--primary" data-action="create" style="margin-top:auto">Übung anlegen</button>`;
 }
@@ -487,6 +507,27 @@ const actions = {
     delete drafts[w.exerciseId];
     render();
   },
+  quick(ds) {
+    const ex = ds.id ? getEx(ds.id) : currentEx();
+    if (!ex) return;
+    const dr = getDraft(ex);
+    const w = {
+      id: uid(), exerciseId: ex.id, date: todayStr(), variant: dr.variant.trim(), note: '',
+      createdAt: Date.now(), sets: dr.sets.map((v) => ({ value: v, feel: null })),
+    };
+    db.workouts.push(w);
+    save();
+    delete drafts[ex.id];
+    render();
+    toast(`${ex.name} eingetragen`, () => {
+      db.workouts = db.workouts.filter((x) => x.id !== w.id);
+      save();
+      delete drafts[ex.id];
+      render();
+    });
+  },
+  'ex-optional'(ds) { const ex = currentEx(); ex.optional = ds.v === 'yes'; save(); render(); },
+  'form-optional'(ds) { form.optional = ds.v === 'yes'; render(); },
   'ex-unit'(ds) { const ex = currentEx(); ex.unit = ds.v; save(); render(); },
   'toggle-pause'() { const ex = currentEx(); ex.paused = !ex.paused; save(); render(); },
   'delete-ex'() {
@@ -510,7 +551,7 @@ const actions = {
     if (!name) { toast('Bitte einen Namen eingeben'); const el = document.querySelector('[data-input="form-name"]'); if (el) el.focus(); return; }
     const ex = {
       id: uid(), name, unit: form.unit, cadence: form.cadence, cooldown: form.cooldown,
-      defaultSets: Array(form.count).fill(form.value), paused: false, note: '', createdAt: Date.now(),
+      defaultSets: Array(form.count).fill(form.value), paused: false, optional: form.optional, note: '', createdAt: Date.now(),
     };
     db.exercises.push(ex);
     save();
@@ -617,6 +658,13 @@ render();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Service Worker nicht registriert', e));
+  });
+  // Neue Version aktiv: auf der Startliste gleich neu laden, sonst beim nächsten Öffnen
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }
+    const a = document.activeElement;
+    if (route().name === 'list' && !session && !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'))) location.reload();
   });
 }
 // Browser bitten, die Daten nicht automatisch zu löschen

@@ -13,6 +13,9 @@
   --orange-bg: #FBE6D1;
   --orange-sub: #6B4A2B;
   --red: #9B1C1C;
+  --blue: #1F4E79;
+  --blue-bg: #DDEBF7;
+  --blue-sub: #3B5670;
   color-scheme: light;
 }
 
@@ -55,10 +58,23 @@ p { margin: 0; }
 .sec--ok .sec__label { color: var(--orange); }
 .sec--rest .sec__label { color: var(--muted); }
 
-.row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  min-height: 64px; padding: 12px 16px; border-radius: 14px;
+.row { display: flex; align-items: center; border-radius: 14px; }
+.row__link {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 64px; padding: 12px 8px 12px 16px;
 }
+.row__link:last-child { padding-right: 16px; }
+.row__done {
+  flex-shrink: 0; width: 44px; height: 44px; margin-right: 10px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: rgba(255, 255, 255, 0.65); border: 1.5px solid currentColor;
+}
+.row--due .row__done { color: var(--green); }
+.row--ok .row__done { color: var(--orange); }
+.row--opt .row__done { color: var(--blue); }
+.row--opt { background: var(--blue-bg); }
+.row--opt .row__sub, .row--opt .row__her { color: var(--blue-sub); }
+.row--opt .row__days, .row--opt .row__hint { color: var(--blue); }
 .row--due { background: var(--green-bg); }
 .row--ok { background: var(--orange-bg); }
 .row--rest { border: 1px solid var(--line); }
@@ -106,6 +122,7 @@ p { margin: 0; }
 .st--due { color: var(--green); font-weight: 600; }
 .st--ok { color: var(--orange); font-weight: 600; }
 .st--rest { color: var(--ink2); font-weight: 600; }
+.st--opt { color: var(--blue); font-weight: 600; }
 
 .card { background: var(--card); border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
 .card__head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
@@ -182,4 +199,6 @@ p { margin: 0; }
   position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px); transform: translateX(-50%);
   background: var(--ink); color: #FFFFFF; padding: 12px 18px; border-radius: 12px; font-size: 15px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); width: max-content; max-width: calc(100% - 40px); text-align: center;
+  display: flex; align-items: center; gap: 14px;
 }
+.toast__undo { min-height: 36px; padding: 0 4px; border: none; background: transparent; color: #9FD3AE; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
