@@ -233,3 +233,7 @@ p { margin: 0; }
 .timer__bar span { display: block; height: 100%; background: var(--ink); transition: width 0.2s linear; }
 .timer--over .timer__bar span { background: var(--green); }
 .timer__actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---------- Für heute markiert (Long Press) ---------- */
+[data-mark], [data-mark] a { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.row--marked { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4.5px var(--green); }

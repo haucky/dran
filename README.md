@@ -63,6 +63,10 @@ Dann `http://localhost:8000` öffnen. Ein Doppelklick auf `index.html` reicht ni
 - **Schnell:** Tippe auf den Haken ✓ in der Liste. Die Übung wird mit den geplanten Werten eingetragen, ohne Bewertung. Danach kannst du 5 Sekunden lang auf „Rückgängig“ tippen.
 - **Ausführlich:** Tippe auf die Übung → „Workout starten“ → bewerte jeden Satz mit leicht oder schwer.
 
+## Für heute markieren
+
+Halte eine Übung in der Liste kurz gedrückt (ca. eine halbe Sekunde). Sie bekommt einen grünen Rahmen, als „hab ich mir für heute vorgenommen“. Ein weiterer Long Press entfernt den Rahmen. Markierungen verschwinden von selbst am nächsten Tag oder wenn du die Übung einträgst. Übungen in Pause lassen sich nicht markieren.
+
 ## Zeit-Übungen und Timer
 
 - Stellst du bei einer Übung „Zählen in: Zeit“ ein, wachsen die Schritte mit: bis 1 min in 5 s, bis 5 min in 30 s, darüber in 5 min (für Yin Yoga & Co.).

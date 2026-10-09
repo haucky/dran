@@ -146,7 +146,9 @@ function normalize(d) {
     createdAt: Number(w.createdAt) || Date.now(),
     sets: w.sets.map((s) => ({ value: num(s && s.value, 0, 0), feel: s && (s.feel === 'easy' || s.feel === 'hard') ? s.feel : null })),
   }));
-  return { version: DATA_VERSION, exercises, workouts, lastExport: d.lastExport || null };
+  const marks = d.marks && d.marks.date === todayStr() && Array.isArray(d.marks.ids)
+    ? { date: d.marks.date, ids: d.marks.ids.map(String).filter((id) => ids.has(id)) } : null;
+  return { version: DATA_VERSION, exercises, workouts, lastExport: d.lastExport || null, marks };
 }
 
 function load() {
@@ -173,6 +175,16 @@ function workoutsFor(id) {
 }
 function lastWorkout(id) { return workoutsFor(id)[0] || null; }
 function allEasy(w) { return !!w && w.sets.length > 0 && w.sets.every((s) => s.feel === 'easy'); }
+
+/* Markierungen „für heute vorgenommen“: gelten nur am selben Tag */
+function markedIds() { return db.marks && db.marks.date === todayStr() ? db.marks.ids : []; }
+function isMarked(id) { return markedIds().includes(id); }
+function setMark(id, on) {
+  const ids = markedIds().filter((x) => x !== id);
+  if (on) ids.push(id);
+  db.marks = ids.length ? { date: todayStr(), ids } : null;
+  save();
+}
 
 /* Status: rest (Cool-Down läuft) · ok (möglich) · due (fällig) */
 function status(ex, t = todayStr()) {
@@ -400,7 +412,8 @@ function viewList() {
     const big = st.days === null ? 'neu' : st.days === 0 ? 'heute' : `${st.days} T`;
     const her = st.days === null || st.days === 0 ? '' : 'her';
     const cls = st.optional ? 'opt' : st.kind;
-    return `<div class="row row--${cls}">
+    const markable = st.kind !== 'rest';
+    return `<div class="row row--${cls}${markable && isMarked(ex.id) ? ' row--marked' : ''}"${markable ? ` data-mark="${ex.id}"` : ''}>
       <a class="row__link" href="#/ex/${ex.id}">
         <div class="row__main">
           <span class="row__name">${esc(ex.name)}</span>
@@ -659,6 +672,7 @@ const actions = {
       createdAt: Date.now(), sets: session.sets.map((s) => ({ value: s.value, feel: s.feel })),
     });
     ex.defaultSets = session.sets.map((s) => Math.max(1, s.value));
+    setMark(ex.id, false);
     save();
     delete drafts[ex.id];
     stopTimer();
@@ -682,12 +696,15 @@ const actions = {
       id: uid(), exerciseId: ex.id, date: todayStr(), variant: dr.variant.trim(), note: '',
       createdAt: Date.now(), sets: dr.sets.map((v) => ({ value: v, feel: null })),
     };
+    const wasMarked = isMarked(ex.id);
     db.workouts.push(w);
+    setMark(ex.id, false);
     save();
     delete drafts[ex.id];
     render();
     toast(`${ex.name} eingetragen`, () => {
       db.workouts = db.workouts.filter((x) => x.id !== w.id);
+      if (wasMarked) setMark(ex.id, true);
       save();
       delete drafts[ex.id];
       render();
@@ -845,6 +862,40 @@ $app.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change]');
   if (el && changes[el.dataset.change]) changes[el.dataset.change](el.value, el);
 });
+
+/* Long Press auf eine Zeile = für heute markieren / Markierung entfernen */
+const LONG_PRESS_MS = 500;
+let press = null;
+let suppressClick = false;
+
+$app.addEventListener('pointerdown', (e) => {
+  suppressClick = false; // neue Geste
+  const row = e.target.closest('[data-mark]');
+  if (!row || e.target.closest('.row__done') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  const x = e.clientX, y = e.clientY;
+  press = {
+    x, y,
+    t: setTimeout(() => {
+      press = null;
+      const id = row.dataset.mark;
+      const on = !isMarked(id);
+      setMark(id, on);
+      row.classList.toggle('row--marked', on);
+      if (navigator.vibrate) navigator.vibrate(15);
+      suppressClick = true;
+    }, LONG_PRESS_MS),
+  };
+});
+const cancelPress = () => { if (press) { clearTimeout(press.t); press = null; } };
+$app.addEventListener('pointermove', (e) => {
+  if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress();
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => $app.addEventListener(ev, cancelPress));
+$app.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-mark]')) e.preventDefault(); });
+// Nach einem Long Press nicht zusätzlich die Übung öffnen
+document.addEventListener('click', (e) => {
+  if (suppressClick) { e.preventDefault(); e.stopPropagation(); suppressClick = false; }
+}, true);
 
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 // Beim Zurückkehren in die App (z. B. am nächsten Tag) neu berechnen
